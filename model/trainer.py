@@ -103,6 +103,8 @@ class Contrast2ContrastTrainer:
         self.input_keys = config.get(
             "input_keys", {"domain_a": "xA", "domain_b": "xB"}
         )
+        self.cross_domain_strategy = config.get("cross_domain_strategy", "use_source_skip")
+        self.mixed_skip_alpha = float(config.get("mixed_skip_alpha", 0.5))
         self.wandb_run = wandb_run
         self.wandb_enabled = bool(
             self.logging_cfg.get("use_wandb", wandb_run is not None)
@@ -230,8 +232,15 @@ class Contrast2ContrastTrainer:
             x_a_recon = self._run_decoder(self.decoder_a, z_a, skips=skips_a, identity=identity_a)
             x_b_recon = self._run_decoder(self.decoder_b, z_b, skips=skips_b, identity=identity_b)
 
-            x_a_from_b = self._run_decoder(self.decoder_a, z_b, skips=skips_b, identity=None)
-            x_b_from_a = self._run_decoder(self.decoder_b, z_a, skips=skips_a, identity=None)
+            # Cross-domain reconstruction with configurable skip strategy
+            cross_skips_for_a, cross_identity_for_a = self._prepare_cross_skips(
+                skips_a, skips_b, identity_a, identity_b, target_domain="a"
+            )
+            cross_skips_for_b, cross_identity_for_b = self._prepare_cross_skips(
+                skips_b, skips_a, identity_b, identity_a, target_domain="b"
+            )
+            x_a_from_b = self._run_decoder(self.decoder_a, z_b, skips=cross_skips_for_a, identity=cross_identity_for_a)
+            x_b_from_a = self._run_decoder(self.decoder_b, z_a, skips=cross_skips_for_b, identity=cross_identity_for_b)
 
             # Rescale cross-domain predictions and targets to their original magnitudes.
             x_a_target_scaled = x_a * scale_a
@@ -432,6 +441,63 @@ class Contrast2ContrastTrainer:
                     step=self.state.global_step,
                 )
         return collapsed
+
+    def _prepare_cross_skips(
+        self,
+        target_skips: Optional[List[torch.Tensor]],
+        source_skips: Optional[List[torch.Tensor]],
+        target_identity: Optional[torch.Tensor],
+        source_identity: Optional[torch.Tensor],
+        target_domain: str,
+    ) -> Tuple[Optional[List[torch.Tensor]], Optional[torch.Tensor]]:
+        """
+        Prepare skip connections and identity for cross-domain reconstruction.
+
+        Strategies:
+        - "use_source_skip": Use skips from source domain (original behavior, problematic)
+        - "use_target_skip": Use skips from target domain (matches ground truth structure)
+        - "no_skip": Don't use any skips (forces latent to be self-sufficient)
+        - "zero_skip": Use zero-valued skips (maintains architecture consistency)
+        - "mixed_skip": Weighted mix of source and target skips
+        """
+        strategy = self.cross_domain_strategy
+
+        if strategy == "use_source_skip":
+            # Original behavior: use skips from source domain
+            return source_skips, None
+
+        elif strategy == "use_target_skip":
+            # Use skips from target domain (better structural alignment)
+            return target_skips, target_identity
+
+        elif strategy == "no_skip":
+            # No skips at all - latent must encode everything
+            return None, None
+
+        elif strategy == "zero_skip":
+            # Zero-valued skips to maintain architecture
+            if source_skips is not None:
+                zero_skips = [torch.zeros_like(s) for s in source_skips]
+                return zero_skips, None
+            return None, None
+
+        elif strategy == "mixed_skip":
+            # Weighted combination of both domains
+            if target_skips is not None and source_skips is not None:
+                alpha = self.mixed_skip_alpha
+                mixed_skips = [
+                    alpha * t_skip + (1.0 - alpha) * s_skip
+                    for t_skip, s_skip in zip(target_skips, source_skips)
+                ]
+                return mixed_skips, None
+            elif target_skips is not None:
+                return target_skips, None
+            elif source_skips is not None:
+                return source_skips, None
+            return None, None
+
+        else:
+            raise ValueError(f"Unknown cross_domain_strategy: {strategy}")
 
     def _estimate_noise_for_tensor(self, tensor: torch.Tensor) -> Optional[torch.Tensor]:
         if not self.noise_estimation_cfg.get("enabled", False):

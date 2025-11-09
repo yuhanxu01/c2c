@@ -58,10 +58,7 @@
     "type": "adamw",
     "learning_rate": 0.0003,
     "weight_decay": 0.01,
-    "betas": [
-      0.9,
-      0.999
-    ]
+    "betas": [0.9, 0.999]
   },
   "scheduler": {
     "type": "cosine",
@@ -73,7 +70,7 @@
       "content": 1.0,
       "recon": 0.5,
       "cross": 1.0,
-      "edge": 0.05
+      "edge": 0.0
     },
     "noise": {
       "enabled": true,
@@ -86,8 +83,8 @@
       "contrast": 0.1
     },
     "edge_loss": {
-      "enabled": true,
-      "weight": 0.05
+      "enabled": false,
+      "weight": 0.02
     },
     "anti_collapse": {
       "variance_threshold": 1e-5,
@@ -99,14 +96,14 @@
     "logging": {
       "use_wandb": true,
       "image_interval": 200,
-      "project": "contrast2contrast-unet",
+      "project": "c2c-cross-baseline",
       "entity": null
     },
     "noise_estimation": {
       "enabled": true,
       "method": "auto"
     },
-    "epochs": 5,
+    "epochs": 10,
     "encoder_output_index": -1,
     "input_representation": "complex",
     "scheduler_step": "epoch",
@@ -115,7 +112,7 @@
       "domain_a": "noisy_pd",
       "domain_b": "noisy_pdfs"
     },
-    "cross_domain_strategy": "no_skip",
+    "cross_domain_strategy": "use_source_skip",
     "mixed_skip_alpha": 0.5
   }
 }
