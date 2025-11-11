@@ -453,12 +453,49 @@ class Contrast2ContrastTrainer:
         """
         Prepare skip connections and identity for cross-domain reconstruction.
 
+        ⚠️  CRITICAL ISSUE: NOISE PATTERN LEAKAGE
+        ════════════════════════════════════════════════════════════════════
+
+        Noise2Noise requires INDEPENDENT noise in paired samples:
+          x_a = clean_content + noise_a  (independent noise)
+          x_b = clean_content + noise_b  (independent noise)
+
+        Problem: Skip connections contain noise patterns!
+          encoder(x_a_noisy) → z_a, skips_a
+          skips_a includes spatial features WITH noise_a pattern
+
+        If cross-domain uses source skips:
+          decoder_a(z_b, skips_a) → output with noise_a leaked ❌
+          This BREAKS the independence assumption of Noise2Noise!
+
+        ════════════════════════════════════════════════════════════════════
+
         Strategies:
-        - "use_source_skip": Use skips from source domain (original behavior, problematic)
-        - "use_target_skip": Use skips from target domain (matches ground truth structure)
-        - "no_skip": Don't use any skips (forces latent to be self-sufficient)
-        - "zero_skip": Use zero-valued skips (maintains architecture consistency)
-        - "mixed_skip": Weighted mix of source and target skips
+
+        ✅ "no_skip" (RECOMMENDED for Noise2Noise):
+          - No skip connections in cross-domain path
+          - Completely avoids noise leakage
+          - Forces latent to encode clean content
+          - Most principled approach
+
+        ⚠️  "use_source_skip" (PROBLEMATIC - for comparison only):
+          - Uses skips from source domain
+          - LEAKS source noise pattern into target reconstruction
+          - Breaks Noise2Noise! Only use for debugging
+
+        ⚠️  "use_target_skip" (STILL PROBLEMATIC):
+          - Uses skips from target domain
+          - May leak target noise, causing correlation
+          - Not recommended for Noise2Noise
+
+        "zero_skip":
+          - Zero-valued skips (maintains architecture)
+          - Effectively same as no_skip
+
+        "mixed_skip":
+          - Weighted combination of both skips
+          - Leaks noise from BOTH domains
+          - Not recommended
         """
         strategy = self.cross_domain_strategy
 
