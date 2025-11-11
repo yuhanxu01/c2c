@@ -105,6 +105,7 @@ class Contrast2ContrastTrainer:
         )
         self.cross_domain_strategy = config.get("cross_domain_strategy", "use_source_skip")
         self.mixed_skip_alpha = float(config.get("mixed_skip_alpha", 0.5))
+        self.same_domain_use_skip = config.get("same_domain_use_skip", True)
         self.wandb_run = wandb_run
         self.wandb_enabled = bool(
             self.logging_cfg.get("use_wandb", wandb_run is not None)
@@ -229,8 +230,14 @@ class Contrast2ContrastTrainer:
             z_a, skips_a, identity_a = self._split_encoder_output(enc_a)
             z_b, skips_b, identity_b = self._split_encoder_output(enc_b)
 
-            x_a_recon = self._run_decoder(self.decoder_a, z_a, skips=skips_a, identity=identity_a)
-            x_b_recon = self._run_decoder(self.decoder_b, z_b, skips=skips_b, identity=identity_b)
+            # Same-domain reconstruction: use skip if enabled
+            if self.same_domain_use_skip:
+                x_a_recon = self._run_decoder(self.decoder_a, z_a, skips=skips_a, identity=identity_a)
+                x_b_recon = self._run_decoder(self.decoder_b, z_b, skips=skips_b, identity=identity_b)
+            else:
+                # Force decoder to work without skip - prevents overfitting to skip connections
+                x_a_recon = self._run_decoder(self.decoder_a, z_a, skips=None, identity=None)
+                x_b_recon = self._run_decoder(self.decoder_b, z_b, skips=None, identity=None)
 
             # Cross-domain reconstruction with configurable skip strategy
             cross_skips_for_a, cross_identity_for_a = self._prepare_cross_skips(
