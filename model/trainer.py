@@ -158,14 +158,25 @@ class Contrast2ContrastTrainer:
 
     def _prepare_batch(
         self, batch: Dict[str, torch.Tensor]
-    ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+    ) -> Tuple[torch.Tensor, torch.Tensor, Optional[torch.Tensor], Optional[torch.Tensor], torch.Tensor, torch.Tensor]:
         key_a = self.input_keys["domain_a"]
         key_b = self.input_keys["domain_b"]
         x_a = _to_device(batch[key_a], self.device)
         x_b = _to_device(batch[key_b], self.device)
+
+        # Load ground truth if available and if use_ground_truth is enabled
+        use_gt = self.config.get("use_ground_truth", False)
+        x_a_clean = None
+        x_b_clean = None
+        if use_gt:
+            if "gt_pd" in batch and batch["gt_pd"] is not None:
+                x_a_clean = _to_device(batch["gt_pd"], self.device)
+            if "gt_pdfs" in batch and batch["gt_pdfs"] is not None:
+                x_b_clean = _to_device(batch["gt_pdfs"], self.device)
+
         scale_a = self._prepare_scale_tensor(batch.get("pd_scale"), x_a.shape[0])
         scale_b = self._prepare_scale_tensor(batch.get("pdfs_scale"), x_b.shape[0])
-        return x_a, x_b, scale_a, scale_b
+        return x_a, x_b, x_a_clean, x_b_clean, scale_a, scale_b
 
     def _prepare_scale_tensor(
         self, value: Optional[torch.Tensor], batch_size: int
@@ -219,8 +230,12 @@ class Contrast2ContrastTrainer:
         log_interval = int(self.logging_cfg.get("image_interval", 200))
 
         for step, batch in enumerate(loader):
-            x_a, x_b, scale_a, scale_b = self._prepare_batch(batch)
+            x_a, x_b, x_a_clean, x_b_clean, scale_a, scale_b = self._prepare_batch(batch)
             x_a_noisy, x_b_noisy = self._apply_augmentations(x_a, x_b)
+
+            # Determine training targets: use ground truth if available, otherwise use noisy input
+            target_a = x_a_clean if x_a_clean is not None else x_a
+            target_b = x_b_clean if x_b_clean is not None else x_b
 
             sigma_a_est = self._estimate_noise_for_tensor(x_a_noisy)
             sigma_b_est = self._estimate_noise_for_tensor(x_b_noisy)
@@ -250,13 +265,14 @@ class Contrast2ContrastTrainer:
             x_b_from_a = self._run_decoder(self.decoder_b, z_a, skips=cross_skips_for_b, identity=cross_identity_for_b)
 
             # Rescale cross-domain predictions and targets to their original magnitudes.
-            x_a_target_scaled = x_a * scale_a
-            x_b_target_scaled = x_b * scale_b
+            # Use ground truth targets if available, otherwise use noisy inputs
+            x_a_target_scaled = target_a * scale_a
+            x_b_target_scaled = target_b * scale_b
             x_a_from_b_scaled = x_a_from_b * scale_a
             x_b_from_a_scaled = x_b_from_a * scale_b
 
             l_content = compute_l1_loss(z_a, z_b)
-            l_recon = compute_l1_loss(x_a_recon, x_a) + compute_l1_loss(x_b_recon, x_b)
+            l_recon = compute_l1_loss(x_a_recon, target_a) + compute_l1_loss(x_b_recon, target_b)
             l_cross = compute_l1_loss(x_a_from_b_scaled, x_a_target_scaled) + compute_l1_loss(
                 x_b_from_a_scaled, x_b_target_scaled
             )

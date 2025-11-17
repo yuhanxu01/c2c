@@ -1,0 +1,119 @@
+{
+  "seed": 1337,
+  "device": "cuda:0",
+  "data": {
+    "root": "./datasets/fastmri_knee",
+    "representation": "complex",
+    "crop_size": 256,
+    "stages": {
+      "train": {
+        "split": "train",
+        "paired": true,
+        "augment": true,
+        "batch_size": 4,
+        "shuffle": true,
+        "drop_last": true
+      },
+      "val": {
+        "split": "val",
+        "paired": true,
+        "augment": false,
+        "batch_size": 4,
+        "shuffle": false
+      }
+    }
+  },
+  "model": {
+    "cdlnet": {"M": 512},
+    "encoder": {
+      "class": "UNetEncoder",
+      "checkpoint": null,
+      "kwargs": {
+        "features": [64, 128, 256],
+        "latent_channels": 512
+      }
+    },
+    "decoder_a": {
+      "class": "UNetADecoder",
+      "checkpoint": null,
+      "kwargs": {
+        "features": [512, 256, 128],
+        "latent_channels": 512,
+        "identity_mapping": false
+      }
+    },
+    "decoder_b": {
+      "class": "UNetBDecoder",
+      "checkpoint": null,
+      "kwargs": {
+        "features": [512, 256, 128],
+        "latent_channels": 512,
+        "identity_mapping": false
+      }
+    }
+  },
+  "optimizer": {
+    "type": "adamw",
+    "learning_rate": 0.0003,
+    "weight_decay": 0.01,
+    "betas": [0.9, 0.999]
+  },
+  "scheduler": {
+    "type": "cosine",
+    "t_max": 50,
+    "eta_min": 1e-6
+  },
+  "trainer": {
+    "use_ground_truth": true,
+    "loss_weights": {
+      "content": 1.0,
+      "recon": 0.5,
+      "cross": 1.0,
+      "edge": 0.1
+    },
+    "noise": {
+      "enabled": true,
+      "sigma_a": 0.01,
+      "sigma_b": 0.01
+    },
+    "augmentation": {
+      "enable_jitter": false,
+      "brightness": 0.05,
+      "contrast": 0.1
+    },
+    "edge_loss": {
+      "enabled": true,
+      "weight": 0.1
+    },
+    "anti_collapse": {
+      "variance_threshold": 1e-5,
+      "patience": 2,
+      "adjustment_factor": 0.2,
+      "max_alpha": 8.0,
+      "min_beta": 0.0005
+    },
+    "logging": {
+      "use_wandb": true,
+      "image_interval": 200,
+      "project": "c2c-supervised-no-skip",
+      "entity": null
+    },
+    "noise_estimation": {
+      "enabled": true,
+      "method": "auto"
+    },
+    "epochs": 50,
+    "encoder_output_index": -1,
+    "input_representation": "complex",
+    "scheduler_step": "epoch",
+    "grad_clip_norm": 1.0,
+    "input_keys": {
+      "domain_a": "noisy_pd",
+      "domain_b": "noisy_pdfs"
+    },
+    "cross_domain_strategy": "no_skip",
+    "mixed_skip_alpha": 0.5,
+    "same_domain_use_skip": false,
+    "_comment": "SUPERVISED + NO SKIP: Uses ground truth as targets + disables skip connections everywhere. Decoder forced to learn from latent alone. Best of both fixes!"
+  }
+}
